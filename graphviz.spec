@@ -1,10 +1,15 @@
 %define php_extdir %(php-config --extension-dir 2>/dev/null || echo %{_libdir}/php4)
 %global php_apiver %((echo 0; php -i 2>/dev/null | sed -n 's/^PHP API => //p') | tail -1)
 
+# Fix for the 387 extended precision (rhbz#772637)
+%ifarch i386 i686
+%global FFSTORE -ffloat-store
+%endif
+
 Name:			graphviz
 Summary:		Graph Visualization Tools
 Version:		2.26.0
-Release:		7%{?dist}
+Release:		10%{?dist}
 Group:			Applications/Multimedia
 License:		CPL
 URL:			http://www.graphviz.org/
@@ -148,12 +153,8 @@ Perl extension for graphviz.
 Group:			Applications/Multimedia
 Summary:		PHP extension for graphviz
 Requires:		%{name} = %{version}-%{release}
-%if %{?php_zend_api}0
 Requires:	php(zend-abi) = %{php_zend_api}
 Requires:	php(api) = %{php_core_api}
-%else
-Requires:	php-api = %{php_apiver}
-%endif
 
 %description php
 PHP extension for graphviz.
@@ -219,8 +220,6 @@ sed -i 's:[ \t]*\(RUBY_INCLUDES=`echo $RUBY_INCLUDES | sed '"'s/powerpc/universa
 %build
 # %%define NO_IO --disable-io
 
-# XXX ix86 only used to have -ffast-math, let's use everywhere
-%{expand: %%define optflags %{optflags} -ffast-math}
 # Hack in the java includes we need
 sed -i '/JavaVM.framework/!s/JAVA_INCLUDES=/JAVA_INCLUDES=\"_MY_JAVA_INCLUDES_\"/g' configure
 sed -i 's|_MY_JAVA_INCLUDES_|-I%{java_home}/include/ -I%{java_home}/include/linux/|g' configure
@@ -241,18 +240,23 @@ sed -i 's|_MY_JAVA_INCLUDES_|-I%{java_home}/include/ -I%{java_home}/include/linu
 	--without-devil \
 %endif
 
-make %{?_smp_mflags} CFLAGS="$RPM_OPT_FLAGS -fno-strict-aliasing" CXXFLAGS="$RPM_OPT_FLAGS -fno-strict-aliasing"
+make %{?_smp_mflags} CFLAGS="$RPM_OPT_FLAGS -fno-strict-aliasing %{?FFSTORE}" CXXFLAGS="$RPM_OPT_FLAGS -fno-strict-aliasing %{?FFSTORE}"
 
 %install
-rm -rf %{buildroot} __doc
+rm -rf %{buildroot}
 make DESTDIR=%{buildroot} \
-	docdir=%{buildroot}%{_docdir}/%{name} \
+	docdir=%{buildroot}%{_docdir}/%{name}-%{version} \
 	pkgconfigdir=%{_libdir}/pkgconfig \
 	install
 find %{buildroot} -type f -name "*.la" -exec rm -f {} ';'
 chmod -x %{buildroot}%{_datadir}/%{name}/lefty/*
-cp -a %{buildroot}%{_datadir}/%{name}/doc __doc
-rm -rf %{buildroot}%{_datadir}/%{name}/doc
+
+# Move docs to the right place
+mkdir -p %{buildroot}%{_docdir}/%{name}-%{version}
+mv %{buildroot}%{_datadir}/%{name}/doc/* %{buildroot}%{_docdir}/%{name}-%{version}
+
+# Install README
+install -m0644 README %{buildroot}%{_docdir}/%{name}-%{version}
 
 # remove hidden .libs dir
 rm -rf libltdl/.libs
@@ -263,6 +267,15 @@ rm -rf libltdl/.libs
 ; Enable %{name} extension module
 extension=gv.so
 __EOF__
+
+# Remove executable modes from demos
+find %{buildroot}%{_datadir}/%{name}/demo -type f -exec chmod a-x {} ';'
+
+# Move demos to doc
+mv %{buildroot}%{_datadir}/%{name}/demo %{buildroot}%{_docdir}/%{name}-%{version}/
+
+# Rename python demos to prevent byte compilation
+find %{buildroot}%{_docdir}/%{name}-%{version}/demo -type f -name "*.py" -exec mv {} {}.demo ';'
 
 %check
 cd rtest
@@ -275,42 +288,47 @@ rm -rf %{buildroot}
 /sbin/ldconfig
 %{_bindir}/dot -c
 
-# if there is no dot after everything else is done, then remove config
+# if there is no dot after everything else is done, then remove config*
 %postun
 if [ $1 -eq 0 ]; then
-	rm -f %{_libdir}/graphviz/config || :
+	rm -f %{_libdir}/graphviz/config* || :
 fi
 /sbin/ldconfig
 
-# run "dot -c" to generate plugin config in %%{_libdir}/graphviz/config
+# run "dot -c" to generate plugin config in %%{_libdir}/graphviz/config*
 %if %{DEVIL}
 %post devil
-%{_bindir}/dot -c
+%{_bindir}/dot -c 2>/dev/null || :
+/sbin/ldconfig
 
 %postun devil
-[ -x %{_bindir}/dot ] && %{_bindir}/dot -c || :
+%{_bindir}/dot -c 2>/dev/null || :
+/sbin/ldconfig
 %endif
 
+# run "dot -c" to generate plugin config in %%{_libdir}/graphviz/config*
 %post gd
+%{_bindir}/dot -c 2>/dev/null || :
 /sbin/ldconfig
-%{_bindir}/dot -c
 
 %postun gd
+%{_bindir}/dot -c 2>/dev/null || :
 /sbin/ldconfig
-[ -x %{_bindir}/dot ] && %{_bindir}/dot -c || :
 
 %if %{MING}
-# run "dot -c" to generate plugin config in %%{_libdir}/graphviz/config
+# run "dot -c" to generate plugin config in %%{_libdir}/graphviz/config*
 %post ming
-%{_bindir}/dot -c
+%{_bindir}/dot -c 2>/dev/null || :
+/sbin/ldconfig
 
 %postun ming
-[ -x %{_bindir}/dot ] && %{_bindir}/dot -c || :
+%{_bindir}/dot -c 2>/dev/null || :
+/sbin/ldconfig
 %endif
 
 %files
 %defattr(-,root,root,-)
-%doc AUTHORS COPYING ChangeLog NEWS README
+%doc %{_docdir}/%{name}-%{version}
 %{_bindir}/*
 %dir %{_libdir}/graphviz
 %{_libdir}/*.so.*
@@ -318,6 +336,9 @@ fi
 %{_mandir}/man1/*.1*
 %{_mandir}/man7/*.7*
 %dir %{_datadir}/graphviz
+%exclude %{_docdir}/%{name}-%{version}/html
+%exclude %{_docdir}/%{name}-%{version}/pdf
+%exclude %{_docdir}/%{name}-%{version}/demo
 %{_datadir}/graphviz/lefty
 %exclude %{_libdir}/graphviz/*/*
 %exclude %{_libdir}/graphviz/libgvplugin_gd.*
@@ -345,7 +366,9 @@ fi
 
 %files doc
 %defattr(-,root,root,-)
-%doc __doc/*
+%doc %{_docdir}/%{name}-%{version}/html
+%doc %{_docdir}/%{name}-%{version}/pdf
+%doc %{_docdir}/%{name}-%{version}/demo
 
 %files gd
 %defattr(-,root,root,-)
@@ -430,7 +453,6 @@ fi
 %defattr(-,root,root,-)
 %{_libdir}/graphviz/tcl/
 %{_libdir}/tcl*/*
-%{_datadir}/graphviz/demo/
 # hack to include gv.3tcl only if available
 #  always includes tcldot.3tcl, gdtclft.3tcl
 %{_mandir}/man3/*.3tcl*
@@ -438,8 +460,24 @@ fi
 
 
 %changelog
+* Fri Aug 17 2012 Jaroslav Škarvada <jskarvad@redhat.com> - 2.26.0-10
+- Fixed post/postuns for plugins
+  Resolves: rhbz#849134
+
+* Wed Aug  1 2012 Jaroslav Škarvada <jskarvad@redhat.com> - 2.26.0-9
+- Fixed -fno-strict-aliasing usage on C++ code
+- Python demos are no longer byte compiled
+
+* Tue May 22 2012 Jaroslav Škarvada <jskarvad@redhat.com> - 2.26.0-8
+- All docs are now installed into /usr/share/doc/graphviz-%%{version}
+- Demos packaged as docs not to automatically bring in unnecessary deps
+  Resolves: rhbz#821920
+- Removed -ffast-math, added -ffloat-store (on i386) to fix arithmetic on i386
+  Resolves: rhbz#772637
+- Fixed build failure due to change in php_zend_api macro type
+
 * Thu Jul 07 2011 Jaroslav Škarvada <jskarvad@redhat.com> - 2.26.0-7
-- Added gd as devel requirement 
+- Added gd as devel requirement
 
 * Thu Jul 07 2011 Jaroslav Škarvada <jskarvad@redhat.com> - 2.26.0-6
 - Recompiled with -fno-strict-aliasing in CXXFLAGS
