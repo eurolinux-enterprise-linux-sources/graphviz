@@ -1,15 +1,23 @@
 %define php_extdir %(php-config --extension-dir 2>/dev/null || echo %{_libdir}/php4)
 %global php_apiver %((echo 0; php -i 2>/dev/null | sed -n 's/^PHP API => //p') | tail -1)
 
-Name:			  graphviz
+Name:			graphviz
 Summary:		Graph Visualization Tools
 Version:		2.26.0
-Release:		4%{?dist}
+Release:		7%{?dist}
 Group:			Applications/Multimedia
 License:		CPL
 URL:			http://www.graphviz.org/
 Source0:		http://www.graphviz.org/pub/graphviz/ARCHIVE/%{name}-%{version}.tar.gz
+# Fix for sparc64
 Patch0:			graphviz-sparc64.patch
+# Fix broken links in doc index (624658)
+Patch1:			graphviz-2.26.0-doc-index-fix.patch
+# Enabled and fixed testsuite (624690)
+Patch2:			graphviz-2.26.0-testsuite-sigsegv-fix.patch
+Patch3:			graphviz-2.26.0-rtest-errout-fix.patch
+# Fix gtk plugin program-name (640247)
+Patch4:			graphviz-2.26.0-gtk-progname.patch
 BuildRoot:		%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 BuildRequires:		zlib-devel, libpng-devel, libjpeg-devel, expat-devel, freetype-devel >= 2
 BuildRequires:		/bin/ksh, bison, m4, flex, tk-devel, tcl-devel >= 8.3, swig
@@ -17,6 +25,7 @@ BuildRequires:		fontconfig-devel, libtool-ltdl-devel, ruby-devel, ruby, guile-de
 BuildRequires:		libXaw-devel, libSM-devel, libXext-devel, java-devel, php-devel
 BuildRequires:		cairo-devel >= 1.1.10, pango-devel, gmp-devel, lua-devel, gtk2-devel, libgnomeui-devel
 BuildRequires:		gd-devel, perl-devel, swig >= 1.3.33
+BuildRequires:		urw-fonts
 Requires:		urw-fonts
 Requires(post):		/sbin/ldconfig
 Requires(postun):	/sbin/ldconfig
@@ -37,6 +46,7 @@ and edges, not as in barcharts).
 Group:			Development/Libraries
 Summary:		Development package for graphviz
 Requires:		%{name} = %{version}-%{release}, pkgconfig
+Requires:		%{name}-gd = %{version}-%{release}
 
 %description devel
 A collection of tools for the manipulation and layout of graphs (as in nodes 
@@ -195,6 +205,10 @@ Various tcl packages (extensions) for the graphviz tools.
 %prep
 %setup -q
 %patch0 -p1 -b .sparc64
+%patch1 -p1 -b .doc-index-fix
+%patch2 -p1 -b .testsuite-sigsegv-fix
+%patch3 -p1 -b .rtest-errout-fix
+%patch4 -p1 -b .gtk-progname
 
 # fix sources permissions
 find . -type f '(' -name '*.h' -or -name '*.c' ')' -exec chmod 644 {} ';'
@@ -227,7 +241,7 @@ sed -i 's|_MY_JAVA_INCLUDES_|-I%{java_home}/include/ -I%{java_home}/include/linu
 	--without-devil \
 %endif
 
-make %{?_smp_mflags}
+make %{?_smp_mflags} CFLAGS="$RPM_OPT_FLAGS -fno-strict-aliasing" CXXFLAGS="$RPM_OPT_FLAGS -fno-strict-aliasing"
 
 %install
 rm -rf %{buildroot} __doc
@@ -251,11 +265,8 @@ extension=gv.so
 __EOF__
 
 %check
-%ifnarch ppc64 ppc sparc64
-# regression test, segfaults on ppc/ppc64/sparc64, possible endian issues?
 cd rtest
 make rtest
-%endif
 
 %clean
 rm -rf %{buildroot}
@@ -271,7 +282,7 @@ if [ $1 -eq 0 ]; then
 fi
 /sbin/ldconfig
 
-# run "dot -c" to generate plugin config in %{_libdir}/graphviz/config
+# run "dot -c" to generate plugin config in %%{_libdir}/graphviz/config
 %if %{DEVIL}
 %post devil
 %{_bindir}/dot -c
@@ -289,7 +300,7 @@ fi
 [ -x %{_bindir}/dot ] && %{_bindir}/dot -c || :
 
 %if %{MING}
-# run "dot -c" to generate plugin config in %{_libdir}/graphviz/config
+# run "dot -c" to generate plugin config in %%{_libdir}/graphviz/config
 %post ming
 %{_bindir}/dot -c
 
@@ -427,6 +438,25 @@ fi
 
 
 %changelog
+* Thu Jul 07 2011 Jaroslav Škarvada <jskarvad@redhat.com> - 2.26.0-7
+- Added gd as devel requirement 
+
+* Thu Jul 07 2011 Jaroslav Škarvada <jskarvad@redhat.com> - 2.26.0-6
+- Recompiled with -fno-strict-aliasing in CXXFLAGS
+
+* Wed Oct 13 2010 Jaroslav Škarvada <jskarvad@redhat.com> - 2.26.0-5
+- Fixed broken links in index.html (doc-index-fix patch)
+  Resolves: rhbz#624658
+- Enabled and fixed testsuite (testsuite-sigsegv-fix, rtest-errout-fix patches)
+  Resolves: rhbz#624690
+- Fixed rpmlint warnings on spec file
+- Rebuilt with updated swig
+  Resolves: rhbz#679715
+- Fixed gtk plugin program-name (gtk-progname patch)
+  Resolves: rhbz#640247
+- Added urw-fonts to BuildRequires
+- Compiled with -fno-strict-aliasing
+
 * Mon Mar 01 2010 Jaroslav Škarvada <jskarvad@redhat.com> - 2.26.0-4
 - Disabled R, DevIL, mono
 - Fixed ruby include path on ppc

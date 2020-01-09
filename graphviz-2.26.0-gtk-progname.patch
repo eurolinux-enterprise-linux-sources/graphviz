@@ -1,0 +1,10 @@
+--- graphviz-2.26.0/plugin/gtk/callbacks.c.old	2009-06-03 03:10:57.000000000 +0200
++++ graphviz-2.26.0/plugin/gtk/callbacks.c	2010-10-06 17:38:59.703008542 +0200
+@@ -187,6 +187,7 @@
+     GtkWindow *window = GTK_WINDOW(gtk_widget_get_toplevel(GTK_WIDGET(menuitem)));
+     gtk_show_about_dialog(window,
+ 		"name", "DotEdit",
++		"program-name", "DotEdit",
+ 		"version", "0.1",
+ 		"copyright", "(C) 2005 AT&T Corp.",
+ 		"license", "Common Public License, Version 1.0.",
